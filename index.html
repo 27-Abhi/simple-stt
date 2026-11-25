@@ -253,6 +253,7 @@
     async function startRecording() {
       const engine = $("engineSelect").value;
       const lang = $("langSelect").value;
+      $("liveStatus").style.color = "";
       isRecording = true;
       $("recordBtn").textContent = "Stop Listening";
       $("recordBtn").classList.remove("primary");
@@ -302,16 +303,19 @@
           $("transcriptBox").value = cur ? `${cur.trim()} ${msg.text.trim()}` : msg.text.trim();
         } else if (msg.type === "error") {
           $("liveStatus").textContent = `Error: ${msg.detail}`;
+          $("liveStatus").style.color = "var(--danger)";
           stopRecording(true);
         }
       };
       ws.onerror = () => {
         $("liveStatus").textContent = "WebSocket connection error.";
+        $("liveStatus").style.color = "var(--danger)";
         stopRecording(true);
       };
       ws.onclose = (ev) => {
         if (isRecording) {
           $("liveStatus").textContent = `Connection closed (${ev.code}).`;
+          $("liveStatus").style.color = "var(--danger)";
           stopRecording(true);
         }
       };

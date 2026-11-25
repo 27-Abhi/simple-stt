@@ -282,32 +282,60 @@ async def _relay_gemini_live(ws: WebSocket, api_key: str, language: str) -> None
             }
         }
         await gemini_ws.send(json.dumps(setup_msg))
+
+        # Wait for Gemini's setupComplete (or immediate error/close) before streaming audio
+        try:
+            first_raw = await asyncio.wait_for(gemini_ws.recv(), timeout=10)
+        except TimeoutError:
+            await ws.send_json({"type": "error", "detail": "Gemini Live setup timed out."})
+            return
+        except WebSocketException as exc:
+            logger.warning("Gemini Live closed during setup: %s", exc)
+            await ws.send_json({"type": "error", "detail": f"Gemini Live setup rejected: {exc}"})
+            return
+
+        first_payload = json.loads(first_raw)
+        if first_payload.get("error"):
+            err = first_payload["error"]
+            detail = err.get("message") if isinstance(err, dict) else str(err)
+            await ws.send_json({"type": "error", "detail": f"Gemini API error: {detail}"})
+            return
+
         await ws.send_json({"type": "ready", "engine": "gemini-live"})
 
         async def client_to_gemini():
-            while True:
-                msg = await ws.receive()
-                if msg.get("type") == "websocket.disconnect":
-                    break
-                if msg.get("bytes") is not None:
-                    b64 = base64.b64encode(msg["bytes"]).decode("ascii")
-                    await gemini_ws.send(
-                        json.dumps(
-                            {
-                                "realtimeInput": {
-                                    "mediaChunks": [
-                                        {"mimeType": "audio/pcm;rate=16000", "data": b64}
-                                    ]
-                                }
-                            }
-                        )
-                    )
-                elif msg.get("text"):
-                    data = json.loads(msg["text"])
-                    if data.get("type") == "end_of_speech":
-                        await gemini_ws.send(json.dumps({"realtimeInput": {"audioStreamEnd": True}}))
-                    elif data.get("type") == "stop":
+            try:
+                while True:
+                    msg = await ws.receive()
+                    if msg.get("type") == "websocket.disconnect":
                         break
+                    if msg.get("bytes") is not None:
+                        b64 = base64.b64encode(msg["bytes"]).decode("ascii")
+                        await gemini_ws.send(
+                            json.dumps(
+                                {
+                                    "realtimeInput": {
+                                        "mediaChunks": [
+                                            {"mimeType": "audio/pcm;rate=16000", "data": b64}
+                                        ]
+                                    }
+                                }
+                            )
+                        )
+                    elif msg.get("text"):
+                        data = json.loads(msg["text"])
+                        if data.get("type") == "end_of_speech":
+                            await gemini_ws.send(
+                                json.dumps({"realtimeInput": {"audioStreamEnd": True}})
+                            )
+                        elif data.get("type") == "stop":
+                            break
+            except WebSocketException as exc:
+                logger.warning("Gemini Live send failed: %s", exc)
+                with suppress(Exception):
+                    await ws.send_json(
+                        {"type": "error", "detail": f"Gemini Live send failed: {exc}"}
+                    )
 
         async def gemini_to_client():
             try:
