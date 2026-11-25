@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Multilingual Real-Time Speech-to-Text</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --border: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0ea5e9;
+      --danger: #ef4444;
+      --success: #22c55e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .container { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
+    header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 20px; }
+    h1 { font-size: 1.5rem; margin: 0; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 999px; padding: 4px 12px; font-size: 0.8rem; color: var(--muted);
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 18px; margin-bottom: 20px;
+    }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+    select, input, textarea, button {
+      font: inherit; color: var(--text); background: #0f172a;
+      border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px;
+    }
+    textarea { width: 100%; min-height: 130px; resize: vertical; }
+    button { cursor: pointer; font-weight: 600; transition: background 0.15s; }
+    button.primary { background: var(--accent); color: #0f172a; border-color: var(--accent); }
+    button.primary:hover { background: var(--accent-hover); }
+    button.recording { background: var(--danger); color: #fff; border-color: var(--danger); animation: pulse 1.2s infinite; }
+    button.ghost { background: transparent; }
+    button.danger { background: transparent; color: var(--danger); border-color: rgba(239,68,68,0.4); }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.72; } }
+    .interim {
+      min-height: 24px; font-size: 0.92rem; color: var(--accent);
+      margin-top: 8px; font-style: italic;
+    }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-top: 12px; }
+    .history-header { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .history-list { display: flex; flex-direction: column; gap: 12px; }
+    .item {
+      background: #0f172a; border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px;
+    }
+    .item-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: flex-start; }
+    .item-title { font-weight: 700; font-size: 1rem; margin: 0; }
+    .item-meta { font-size: 0.78rem; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+    .item-body { margin: 10px 0; white-space: pre-wrap; }
+    .item-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .status-text { font-size: 0.85rem; color: var(--muted); }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>Real-Time Multilingual Speech-to-Text</h1>
+        <div class="status-text">Speak Hindi, English, or mixed Hinglish in real time, then save, edit, or play back via TTS.</div>
+      </div>
+      <div class="badge" id="healthBadge"><span class="dot"></span><span>Connecting...</span></div>
+    </header>
+
+    <section class="card">
+      <div class="controls">
+        <select id="engineSelect" title="Speech-to-Text Engine">
+          <option value="web-speech">Browser Web Speech (Instant)</option>
+          <option value="gemini-live">Gemini Live API (WebSocket)</option>
+          <option value="faster-whisper">Self-Hosted Whisper (WebSocket)</option>
+        </select>
+
+        <select id="langSelect" title="Spoken Language">
+          <option value="hi-IN">Hindi + English (hi-IN)</option>
+          <option value="en-IN">English India (en-IN)</option>
+          <option value="en-US">English US (en-US)</option>
+          <option value="hi-IN,en-IN">Multilingual Auto (hi-IN,en-IN)</option>
+          <option value="es-ES">Spanish (es-ES)</option>
+          <option value="fr-FR">French (fr-FR)</option>
+        </select>
+
+        <input id="apiKeyInput" type="password" placeholder="Optional Gemini API Key" class="hidden" />
+
+        <button id="recordBtn" class="primary">Start Listening</button>
+        <span id="timerLabel" class="status-text">00:00</span>
+      </div>
+
+      <input id="titleInput" type="text" placeholder="Optional title (auto-generated if blank)" style="width:100%; margin-bottom:10px;" />
+      <textarea id="transcriptBox" placeholder="Live transcription appears here... You can also type or edit before saving."></textarea>
+      <div id="interimBox" class="interim"></div>
+
+      <div class="row">
+        <div class="status-text" id="liveStatus">Ready</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="speakLiveBtn" class="ghost">Speak (TTS)</button>
+          <button id="clearBtn" class="ghost">Clear</button>
+          <button id="saveBtn" class="primary">Save Transcription</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="history-header">
+        <h2 style="margin:0; font-size:1.15rem;">Transcription History</h2>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <input id="searchInput" type="search" placeholder="Search transcripts..." />
+          <button id="refreshBtn" class="ghost">Refresh</button>
+        </div>
+      </div>
+      <div id="historyList" class="history-list"></div>
+    </section>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let isRecording = false;
+    let recognition = null;
+    let ws = null;
+    let audioCtx = null;
+    let processor = null;
+    let mediaStream = null;
+    let startTime = 0;
+    let timerInterval = null;
+
+    function formatDuration(sec) {
+      const s = Math.floor(sec);
+      return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+    }
+
+    function speakText(text, lang) {
+      if (!("speechSynthesis" in window)) return alert("TTS not supported in this browser.");
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = (lang || "hi-IN").split(",")[0];
+      window.speechSynthesis.speak(utter);
+    }
+
+    $("engineSelect").addEventListener("change", () => {
+      $("apiKeyInput").classList.toggle("hidden", $("engineSelect").value !== "gemini-live");
+    });
+
+    async function loadHealth() {
+      try {
+        const res = await fetch("/api/health");
+        const data = await res.json();
+        $("healthBadge").innerHTML = `<span class="dot"></span><span>DB: ${data.database} | Gemini: ${data.gemini_live_configured ? "ready" : "key needed"} | Whisper: ${data.faster_whisper_available ? "ready" : "off"}</span>`;
+      } catch {
+        $("healthBadge").textContent = "Server offline";
+      }
+    }
+
+    async function loadHistory() {
+      const q = encodeURIComponent($("searchInput").value.trim());
+      const res = await fetch(`/api/transcriptions${q ? `?q=${q}` : ""}`);
+      const items = await res.json();
+      const list = $("historyList");
+      if (!items.length) {
+        list.innerHTML = `<div class="status-text">No transcriptions saved yet.</div>`;
+        return;
+      }
+      list.innerHTML = "";
+      for (const item of items) {
+        const el = document.createElement("div");
+        el.className = "item";
+        el.innerHTML = `
+          <div class="item-top">
+            <h3 class="item-title"></h3>
+            <div class="item-meta">
+              <span>${item.language}</span>
+              <span>•</span>
+              <span>${item.engine}</span>
+              <span>•</span>
+              <span>${formatDuration(item.duration_seconds || 0)}</span>
+              <span>•</span>
+              <span>${new Date(item.created_at).toLocaleString()}</span>
+            </div>
+          </div>
+          <div class="item-body"></div>
+          <div class="item-actions">
+            <button class="ghost speak-btn">Speak (TTS)</button>
+            <button class="ghost edit-btn">Edit</button>
+            <button class="danger delete-btn">Delete</button>
+          </div>
+        `;
+        el.querySelector(".item-title").textContent = item.title;
+        el.querySelector(".item-body").textContent = item.transcript;
+        el.querySelector(".speak-btn").onclick = () => speakText(item.transcript, item.language);
+        el.querySelector(".delete-btn").onclick = async () => {
+          if (!confirm("Delete this transcription?")) return;
+          await fetch(`/api/transcriptions/${item.id}`, { method: "DELETE" });
+          loadHistory();
+        };
+        el.querySelector(".edit-btn").onclick = () => startInlineEdit(el, item);
+        list.appendChild(el);
+      }
+    }
+
+    function startInlineEdit(container, item) {
+      container.innerHTML = `
+        <input class="edit-title" type="text" style="width:100%; margin-bottom:8px;" />
+        <textarea class="edit-body" style="min-height:90px; margin-bottom:8px;"></textarea>
+        <div style="display:flex; gap:8px;">
+          <button class="primary save-edit-btn">Save</button>
+          <button class="ghost cancel-edit-btn">Cancel</button>
+        </div>
+      `;
+      container.querySelector(".edit-title").value = item.title;
+      container.querySelector(".edit-body").value = item.transcript;
+      container.querySelector(".cancel-edit-btn").onclick = loadHistory;
+      container.querySelector(".save-edit-btn").onclick = async () => {
+        const title = container.querySelector(".edit-title").value.trim();
+        const transcript = container.querySelector(".edit-body").value.trim();
+        if (!transcript) return alert("Transcript cannot be empty.");
+        await fetch(`/api/transcriptions/${item.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, transcript }),
+        });
+        loadHistory();
+      };
+    }
+
+    function startTimer() {
+      startTime = Date.now();
+      timerInterval = setInterval(() => {
+        $("timerLabel").textContent = formatDuration((Date.now() - startTime) / 1000);
+      }, 500);
+    }
+
+    function stopTimer() {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+
+    async function startRecording() {
+      const engine = $("engineSelect").value;
+      const lang = $("langSelect").value;
+      isRecording = true;
+      $("recordBtn").textContent = "Stop Listening";
+      $("recordBtn").classList.remove("primary");
+      $("recordBtn").classList.add("recording");
+      startTimer();
+
+      if (engine === "web-speech") {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) {
+          alert("Web Speech API is not supported in this browser. Try Chrome/Edge or switch engine.");
+          return stopRecording();
+        }
+        recognition = new SR();
+        recognition.lang = lang.split(",")[0];
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.onresult = (event) => {
+          let interim = "";
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const text = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              const cur = $("transcriptBox").value;
+              $("transcriptBox").value = cur ? `${cur.trim()} ${text.trim()}` : text.trim();
+            } else {
+              interim += text;
+            }
+          }
+          $("interimBox").textContent = interim;
+        };
+        recognition.onerror = (e) => { $("liveStatus").textContent = `Speech error: ${e.error}`; };
+        recognition.onend = () => { if (isRecording) recognition.start(); };
+        recognition.start();
+        $("liveStatus").textContent = `Listening (${lang}) via Browser Web Speech...`;
+        return;
+      }
+
+      // WebSocket streaming (Gemini Live or Self-Hosted Whisper)
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const apiKey = encodeURIComponent($("apiKeyInput").value.trim());
+      ws = new WebSocket(`${proto}//${location.host}/ws/transcribe?engine=${engine}&language=${encodeURIComponent(lang)}&api_key=${apiKey}`);
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "ready") {
+          $("liveStatus").textContent = `Streaming audio to ${msg.engine}...`;
+        } else if (msg.type === "transcript") {
+          const cur = $("transcriptBox").value;
+          $("transcriptBox").value = cur ? `${cur.trim()} ${msg.text.trim()}` : msg.text.trim();
+        } else if (msg.type === "error") {
+          $("liveStatus").textContent = `Error: ${msg.detail}`;
+          stopRecording(true);
+        }
+      };
+      ws.onerror = () => {
+        $("liveStatus").textContent = "WebSocket connection error.";
+        stopRecording(true);
+      };
+      ws.onclose = (ev) => {
+        if (isRecording) {
+          $("liveStatus").textContent = `Connection closed (${ev.code}).`;
+          stopRecording(true);
+        }
+      };
+
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        $("liveStatus").textContent = `Microphone error: ${err.message}`;
+        stopRecording(true);
+        return;
+      }
+      audioCtx = new AudioContext({ sampleRate: 16000 });
+      const source = audioCtx.createMediaStreamSource(mediaStream);
+      processor = audioCtx.createScriptProcessor(4096, 1, 1);
+
+      // Client-side RMS VAD: streams speech frames and signals end_of_speech after ~1s silence
+      let speechActive = false;
+      let lastSpeechMs = 0;
+      const VAD_THRESHOLD = 0.015;
+      const SILENCE_MS = 1000;
+
+      processor.onaudioprocess = (e) => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        const f32 = e.inputBuffer.getChannelData(0);
+        let sumSq = 0;
+        const pcm16 = new Int16Array(f32.length);
+        for (let i = 0; i < f32.length; i++) {
+          const s = Math.max(-1, Math.min(1, f32[i]));
+          sumSq += s * s;
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+        const rms = Math.sqrt(sumSq / f32.length);
+        const now = Date.now();
+        if (rms >= VAD_THRESHOLD) {
+          speechActive = true;
+          lastSpeechMs = now;
+          $("liveStatus").textContent = "Speaking...";
+          ws.send(pcm16.buffer);
+        } else if (speechActive) {
+          ws.send(pcm16.buffer);
+          if (now - lastSpeechMs >= SILENCE_MS) {
+            speechActive = false;
+            $("liveStatus").textContent = "End of speech detected (listening...)";
+            ws.send(JSON.stringify({ type: "end_of_speech" }));
+          }
+        }
+      };
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+    }
+
+    function stopRecording(preserveStatus = false) {
+      isRecording = false;
+      stopTimer();
+      $("recordBtn").textContent = "Start Listening";
+      $("recordBtn").classList.remove("recording");
+      $("recordBtn").classList.add("primary");
+      $("interimBox").textContent = "";
+      if (!preserveStatus) $("liveStatus").textContent = "Stopped";
+
+      if (recognition) {
+        recognition.onend = null;
+        recognition.stop();
+        recognition = null;
+      }
+      if (processor) { processor.disconnect(); processor = null; }
+      if (audioCtx) { audioCtx.close(); audioCtx = null; }
+      if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
+      if (ws) {
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "stop" }));
+        ws.close();
+        ws = null;
+      }
+    }
+
+    $("recordBtn").onclick = () => (isRecording ? stopRecording() : startRecording());
+    $("speakLiveBtn").onclick = () => speakText($("transcriptBox").value, $("langSelect").value);
+    $("clearBtn").onclick = () => {
+      $("titleInput").value = "";
+      $("transcriptBox").value = "";
+      $("interimBox").textContent = "";
+      $("timerLabel").textContent = "00:00";
+    };
+    $("saveBtn").onclick = async () => {
+      const transcript = $("transcriptBox").value.trim();
+      if (!transcript) return alert("Nothing to save.");
+      const duration = startTime ? (Date.now() - startTime) / 1000 : 0;
+      const res = await fetch("/api/transcriptions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: $("titleInput").value.trim() || null,
+          transcript,
+          language: $("langSelect").value,
+          engine: $("engineSelect").value,
+          duration_seconds: Math.round(duration * 10) / 10,
+        }),
+      });
+      if (res.ok) {
+        $("titleInput").value = "";
+        $("transcriptBox").value = "";
+        $("liveStatus").textContent = "Saved to database!";
+        loadHistory();
+      }
+    };
+    $("searchInput").addEventListener("input", loadHistory);
+    $("refreshBtn").onclick = loadHistory;
+
+    loadHealth();
+    loadHistory();
+  </script>
+</body>
+</html>
